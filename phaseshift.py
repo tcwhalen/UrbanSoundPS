@@ -15,9 +15,9 @@ def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1):
         sampfreq {float} -- sampling frequency (default = 1)
 
     Returns:
-        phdiff {2D np.array[float]} -- phdiff[t,f] gives phase diff of fth frequency bin
+        phdiff {2D np.array[float]} -- phdiff[f,t] gives phase diff of fth frequency bin
                                            at (t,t-1)th time difference
-        psds {2D np.array[float]} -- psds[t,f] gives power spectral density at fth frequency
+        psds {2D np.array[float]} -- psds[f,t] gives power spectral density at fth frequency
                                      bin and tth time bin
         times {list[float]} -- time axis for plotting psds, in sec if sampfreq is in Hz
         freqs {list[float]} -- frequency axis for plotting psds, in Hz if sampfreq is in Hz
@@ -25,10 +25,10 @@ def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1):
     to-do: make input signal array-like
     """
     timebins = len(signal)
-    nsteps = math.floor((timebins-windsize)/stepsize+1)
+    nsteps = math.floor((timebins-windsize)/stepsize)+1
 
     # times and freqs only needed for return
-    times = [i*1/sampfreq for i in range(timebins)]
+    times = [(windsize/2 + i*stepsize)/sampfreq for i in range(nsteps)]
     rayleigh = sampfreq/windsize
     freqs = [rayleigh*i for i in range(round(windsize/2+1))]
 
