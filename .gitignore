@@ -2,3 +2,5 @@
 /urbsound8k
 *.ipynb
 command_sheet
+/processed*
+*.csv
