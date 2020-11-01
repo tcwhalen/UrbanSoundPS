@@ -3,6 +3,7 @@ import math
 import random
 pi = math.pi
 
+#TODO add exception when wind too small for signal
 def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1):
     """Tim C Whalen last edited May 22 2020
     Compute phase difference (Whalen et al. 2020 JNeurophys; phase shift is time mean of
