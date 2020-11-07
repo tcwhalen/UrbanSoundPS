@@ -36,10 +36,9 @@ class UrbanSoundDataset(Dataset):
         self.wind = wind
         self.step = step
         self.FS = 22050 # expected samp freq from librosa load
-        self.max_timebins = math.floor(self.max_length*self.FS/self.step) - round(self.wind/self.step)+1
+        # TODO: figure out why some signals saved with 3+ time bins, hack to fix for now
+        self.max_timebins = 3 + math.floor(self.max_length*self.FS/self.step) - round(self.wind/self.step)+1
         self.load_phase = load_phase
-
-
     
     def __len__(self):
         return len(self.meta)
@@ -58,8 +57,6 @@ class UrbanSoundDataset(Dataset):
 
         need_bins = self.max_timebins - np.size(psds,1)
         # half rounded down padded at start, half rounded down at end
-        if np.size(psds,1)>341:
-            print("stop")
         psds_pad = centerPad2D(psds,need_bins)
 
         if self.load_phase:
@@ -88,42 +85,60 @@ class CNN(Module):
     # define model elements
     def __init__(self, n_channels, n_t, n_f, n_classes):
         super(CNN, self).__init__()
-        kern_conv = 3 # square
-        kern_pool = 2
+        
         # input to first hidden layer
         n_out1 = 32
-        self.hidden1 = Conv2d(n_channels, n_out1, (kern_conv,kern_conv))
+        kern_conv1 = [50,5]
+        self.hidden1 = Conv2d(n_channels, n_out1, kern_conv1)
         kaiming_uniform_(self.hidden1.weight, nonlinearity='relu')
         self.act1 = ReLU()
         # first pooling layer
-        self.pool1 = MaxPool2d((kern_pool,kern_pool), stride=(kern_pool,kern_pool))
+        kern_pool1 = [6,3]
+        self.pool1 = MaxPool2d(kern_pool1, stride=kern_pool1)
+
         # second hidden layer
         n_out2 = 32
-        self.hidden2 = Conv2d(n_out1, n_out2, (kern_conv,kern_conv))
+        kern_conv2 = [4,4]
+        self.hidden2 = Conv2d(n_out1, n_out2, kern_conv2)
         kaiming_uniform_(self.hidden2.weight, nonlinearity='relu')
         self.act2 = ReLU()
         # second pooling layer
-        self.pool2 = MaxPool2d((kern_pool,kern_pool), stride=(kern_pool,kern_pool))
-        # fully connected layer
-        # compute how big network should be befor elinear layer. floor assumes pool crops, not pads
-        size_at_3 = n_out2 * CNN.contract_size(n_t, kern_conv, kern_pool, 2) * CNN.contract_size(n_f, kern_conv, kern_pool, 2)
-        n_out3 = 100
-        self.hidden3 = Linear(size_at_3, n_out3)
+        kern_pool2 = [3,3]
+        self.pool2 = MaxPool2d(kern_pool2, stride=kern_pool2)
+
+        # second hidden layer
+        n_out3 = 32
+        kern_conv3 = [4,4]
+        self.hidden3 = Conv2d(n_out2, n_out3, kern_conv3)
         kaiming_uniform_(self.hidden3.weight, nonlinearity='relu')
         self.act3 = ReLU()
+        # second pooling layer
+        kern_pool3 = [3,3]
+        self.pool3 = MaxPool2d(kern_pool3, stride=kern_pool3)
+        
+        # fully connected layer
+        # compute how big network should be befor elinear layer. floor assumes pool crops, not pads
+        # size_at_3 = n_out2 * CNN.contract_size(n_f, [kern_conv2[0], kern_conv1[0]], [kern_pool2[0], kern_pool1[0]], 2) * CNN.contract_size(n_t, [kern_conv2[1], kern_conv1[1]], [kern_pool2[1], kern_pool1[1]], 2)
+        size_at_4 = 32*7*11 # TODO: fix CNN_contract_size to get this for inhomogenous layers
+        n_out4 = 100
+        self.hidden4 = Linear(size_at_4, n_out4)
+        kaiming_uniform_(self.hidden4.weight, nonlinearity='relu')
+        self.act4 = ReLU()
+
         # output layer
-        self.hidden4 = Linear(n_out3, n_classes)
+        self.hidden5 = Linear(n_out4, n_classes)
         xavier_uniform_(self.hidden4.weight)
-        self.act4 = Softmax(dim=1) # TODO: what's the shape here? why dim 1?
+        self.act5 = Softmax(dim=1) # TODO: what's the shape here? why dim 1?
 
     @staticmethod
     def contract_size(x,kern_conv,kern_pool,n_lay):
         # recursive helper to find length of one dimension of network after several layers
-        # assumes all layers have same conv and pool kernel
+        # load kernel sizes into lsit backwards (end is layer 1)
+        # TODO: fix this
         if n_lay <= 0:
             return x
         else:
-            return math.floor((CNN.contract_size(x,kern_conv,kern_pool,n_lay-1) - kern_conv+1)/kern_pool)
+            return math.floor((CNN.contract_size(x,kern_conv[0:-1],kern_pool[0:-1],n_lay-1) - kern_conv[-1]+1)/kern_pool[-1])
     
     # forward propagate input
     def forward(self, X):
@@ -135,18 +150,22 @@ class CNN(Module):
         X = self.hidden2(X)
         X = self.act2(X)
         X = self.pool2(X)
-        # flatten
-        X = X.view(X.size(0),-1)
         # third hidden layer
         X = self.hidden3(X)
         X = self.act3(X)
-        # output layer
+        X = self.pool3(X)
+        # flatten
+        X = X.view(X.size(0),-1)
+        # third hidden layer
         X = self.hidden4(X)
         X = self.act4(X)
+        # output layer
+        X = self.hidden5(X)
+        X = self.act5(X)
         return X
 
 # training
-def train_model(train_dl, model, n_epochs):
+def train_model(train_dl, model, device, n_epochs):
     # define the optimization
     criterion = CrossEntropyLoss()
     optimizer = SGD(model.parameters(), lr=0.01, momentum=0.9)
@@ -154,16 +173,10 @@ def train_model(train_dl, model, n_epochs):
     for epoch in range(n_epochs):
         print("Training epoch #" + str(epoch+1))
         # enumerate mini batches
-        for i, (psds, label) in enumerate(train_dl):
+        for i, (inputs, label) in enumerate(train_dl):
+            # input size: batches x channels x freqs x times
+            inputs, label = inputs.to(device), label.to(device)
             optimizer.zero_grad() # clear the gradients
-            # construct inputs
-            # if do_phase:
-            #     print("phase not implemented")
-            #     #TODO: concatenate phase tensors
-            # else:
-            #     inputs = psds # size: batch_size x freqs x times
-            inputs = psds # size: batch_size x freqs x times
-
             yhat = model(inputs.float())
             loss = criterion(yhat, label)
             loss.backward() # credit assignment
@@ -171,21 +184,15 @@ def train_model(train_dl, model, n_epochs):
             optimizer.step()
 
 # evaluate
-def evaluate_model(test_dl, model):
+def evaluate_model(test_dl, model, device):
     predictions, actuals = list(), list()
-    for i, (psds, label) in enumerate(train_dl):
-        # construct inputs
-        # if do_phase:
-        #     print("phase not implemented")
-        #     #TODO: concatenate phase tensors
-        # else:
-        #     inputs = psds # size: batch_size x freqs x times
-        inputs = psds # size: batch_size x freqs x times
+    for i, (inputs, label) in enumerate(train_dl):
+        inputs, label = inputs.to(device), label.to(device)
         # evaluate the model on the test set
         yhat = model(inputs.float())
         # retrieve numpy array
-        yhat = yhat.detach().numpy()
-        actual = label.numpy()
+        yhat = yhat.cpu().detach().numpy()
+        actual = label.cpu().numpy()
         # convert to class labels
         yhat = np.argmax(yhat, axis=1)
         # reshape for stacking
@@ -196,41 +203,52 @@ def evaluate_model(test_dl, model):
         actuals.append(actual)
     predictions, actuals = np.vstack(predictions), np.vstack(actuals)
     # calculate accuracy
-    acc = accuracy_score(actuals, predictions)
-    return acc
+    # acc = accuracy_score(actuals, predictions)
+    return predictions, actuals
 
 
 ## main code
-# csv_path = "../input/urbansound8k-meta/UrbanSound8K.csv"
 csv_path = "data/UrbanSound8K.csv"
+# csv_path = "../input/urbansound8k-meta/UrbanSound8K.csv"
 # need already processed data (process_data.py) with correct wind and step
 windexp = 10
 stepexp = 8
-# data_dir = "../input/urbansound8k-processed/processed_wind" + str(windexp) + "_step" + str(stepexp)
-data_dir = "processed_wind" + str(windexp) + "_step" + str(stepexp)
+param_suffix = str(windexp) + "_step" + str(stepexp)
+data_dir = "processed_wind" + param_suffix
+# data_dir = "../input/urbansound8k-processed/processed_wind" + param_suffix
 
 wind = 2**windexp
 step = 2**stepexp
-n_epochs = 10
+n_epochs = 1
 
-load_phase = 0
-train_set = UrbanSoundDataset(csv_path,data_dir, {x for x in range(9)}, wind, step, load_phase)
+load_phase = 1
+
+try_cuda = 0 # will still check if available first
+use_cuda = torch.cuda.is_available() & try_cuda
+device = torch.device("cuda" if use_cuda else "cpu")
+
+# train_set = UrbanSoundDataset(csv_path,data_dir, {x for x in range(9)}, wind, step, load_phase)
+train_set = UrbanSoundDataset(csv_path,data_dir, {1}, wind, step, load_phase)
 test_set = UrbanSoundDataset(csv_path,data_dir, {10}, wind, step, load_phase)
 
 train_dl = DataLoader(train_set,batch_size=64,shuffle=True)
 test_dl = DataLoader(test_set,batch_size=64,shuffle=False)
 
 # define the network
-model_psd = CNN(load_phase+1, train_set.max_timebins, wind/2+1, train_set.n_classes) # 1 input channel for PSD only
-model_psd = model_psd.float()
+model_psd = CNN(load_phase+1, train_set.max_timebins, wind/2+1, train_set.n_classes).float().to(device) # 1 input channel for PSD only
+# model_psd = model_psd.float()
 
 # train the model
 train_start = time.time()
-train_model(train_dl, model_psd, n_epochs)
+train_model(train_dl, model_psd, device, n_epochs)
 print("Training time: " + str(time.time()-train_start) + " seconds")
 
 # evaluate the model
 test_start = time.time()
-acc = evaluate_model(test_dl, model_psd)
+predictions, actuals = evaluate_model(test_dl, model_psd, device)
+acc = accuracy_score(actuals, predictions)
 print("Evaluation time: " + str(time.time()-test_start) + " seconds")
 print('Accuracy: %.3f' % acc)
+
+torch.save(model_psd, "models/model_" + param_suffix + "_test")
+# torch.save(model_psd, "./model_" + param_suffix + "_test")
