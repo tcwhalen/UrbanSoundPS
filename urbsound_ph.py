@@ -4,7 +4,7 @@ import torch
 import math
 import seaborn as sns
 
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, confusion_matrix
 from torchvision.transforms import Compose, ToTensor, Normalize
 from torch.nn import Conv2d, MaxPool2d, Linear, ReLU, Softmax, Module, CrossEntropyLoss
 from torch.optim import SGD
@@ -213,8 +213,8 @@ csv_path = "data/UrbanSound8K.csv"
 # need already processed data (process_data.py) with correct wind and step
 windexp = 10
 stepexp = 8
-param_suffix = str(windexp) + "_step" + str(stepexp)
-data_dir = "processed_wind" + param_suffix
+param_suffix = "wind" + str(windexp) + "_step" + str(stepexp)
+data_dir = "processed_" + param_suffix
 # data_dir = "../input/urbansound8k-processed/processed_wind" + param_suffix
 
 wind = 2**windexp
@@ -223,6 +223,7 @@ n_epochs = 1
 
 load_phase = 1
 
+# GPU help from https://www.kaggle.com/scottclowe/testing-gpu-enabled-notebooks-mnist-pytorch
 try_cuda = 0 # will still check if available first
 use_cuda = torch.cuda.is_available() & try_cuda
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -242,6 +243,7 @@ model_psd = CNN(load_phase+1, train_set.max_timebins, wind/2+1, train_set.n_clas
 train_start = time.time()
 train_model(train_dl, model_psd, device, n_epochs)
 print("Training time: " + str(time.time()-train_start) + " seconds")
+torch.save(model_psd, "models/model_" + param_suffix)
 
 # evaluate the model
 test_start = time.time()
@@ -249,6 +251,4 @@ predictions, actuals = evaluate_model(test_dl, model_psd, device)
 acc = accuracy_score(actuals, predictions)
 print("Evaluation time: " + str(time.time()-test_start) + " seconds")
 print('Accuracy: %.3f' % acc)
-
-torch.save(model_psd, "models/model_" + param_suffix + "_test")
-# torch.save(model_psd, "./model_" + param_suffix + "_test")
+confusion = confusion_matrix(actuals, predictions, labels=train_set.class_names)

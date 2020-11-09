@@ -1,10 +1,11 @@
 import numpy as np
 import math
 import random
+import sys
 pi = math.pi
 
 #TODO add exception when wind too small for signal
-def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1):
+def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1, windfun=None):
     """Tim C Whalen last edited May 22 2020
     Compute phase difference (Whalen et al. 2020 JNeurophys; phase shift is time mean of
     phase difference) and non-windowed power spectral density using Welch's method. 
@@ -14,7 +15,8 @@ def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1):
         windsize {int} -- length (in samples) of FFT window (default = 2**10)
         stepsize {int} -- length (in samples) to shift window each step (default = 2**8)
         sampfreq {float} -- sampling frequency (default = 1)
-
+        windfun {str} -- name of window function (hann(ing), hamming, bartlett, blackman),
+            defaults to None (rectangular)
     Returns:
         phdiff {2D np.array[float]} -- phdiff[f,t] gives phase diff of fth frequency bin
                                            at (t,t-1)th time difference
@@ -25,6 +27,22 @@ def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1):
 
     to-do: make input signal array-like
     """
+    if windfun is not None:
+        windfun.lower()
+        windfun.strip()
+        if windfun == "hamming":
+            window = np.hamming(windsize)
+        elif (windfun == "hanning") | (windfun == "hann"):
+            window = np.hanning(windsize)
+        elif windfun == "bartlett":
+            window = np.bartlett(windsize)
+        elif windfun == "blackman":
+            window = np.blackman(windsize)
+        elif (windfun == "none") | (windfun == "rectangular"):
+            windfun = None
+        else:
+            sys.exit("Invalid window function - must be hann(ing), hamming, blackman, abrtlett, or leave as None")
+    
     timebins = len(signal)
     nsteps = math.floor((timebins-windsize)/stepsize)+1
 
@@ -39,6 +57,8 @@ def phasediff(signal, windsize=2**10, stepsize=2**8, sampfreq=1):
     
     for s in range(nsteps):
         seg = signal[stepsize*s:stepsize*s+windsize]
+        if windfun is not None:
+            seg = seg*window
         ft = np.fft.fft(seg-np.mean(seg))
         fts[:,s] = ft[0:math.ceil(len(ft)/2)+1]
         psds[:,s] = abs(fts[:,s])**2
