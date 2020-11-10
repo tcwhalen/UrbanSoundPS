@@ -15,7 +15,7 @@ import time
 
 ## Defining dataset
 class UrbanSoundDataset(Dataset):
-    def __init__(self, csv_path, data_path, which_folds, wind, step, load_phase):
+    def __init__(self, csv_path, data_path, which_folds, wind, step, downsamp, load_phase):
         """
         Args:
             csv_path (string): path to file of labels
@@ -88,39 +88,39 @@ class CNN(Module):
         
         # input to first hidden layer
         n_out1 = 32
-        kern_conv1 = [50,5]
-        self.hidden1 = Conv2d(n_channels, n_out1, kern_conv1, stride_conv1)
+        kern_conv1 = [450,3]
+        self.hidden1 = Conv2d(n_channels, n_out1, kern_conv1)
         kaiming_uniform_(self.hidden1.weight, nonlinearity='relu')
         self.act1 = ReLU()
         # first pooling layer
-        kern_pool1 = [6,3]
+        kern_pool1 = [4,2]
         self.pool1 = MaxPool2d(kern_pool1, stride=kern_pool1)
+        size_after_1 = (CNN.contract_size(n_f,kern_conv1[0],kern_pool1[0]), CNN.contract_size(n_t,kern_conv1[1],kern_pool1[1]))
 
         # second hidden layer
         n_out2 = 32
-        kern_conv2 = [4,4]
+        kern_conv2 = [3,3]
         self.hidden2 = Conv2d(n_out1, n_out2, kern_conv2)
         kaiming_uniform_(self.hidden2.weight, nonlinearity='relu')
         self.act2 = ReLU()
         # second pooling layer
-        kern_pool2 = [3,3]
+        kern_pool2 = [2,2]
         self.pool2 = MaxPool2d(kern_pool2, stride=kern_pool2)
+        size_after_2 = (CNN.contract_size(size_after_1[0],kern_conv2[0],kern_pool2[0]), CNN.contract_size(size_after_1[1],kern_conv2[1],kern_pool2[1]))
 
         # second hidden layer
         n_out3 = 32
-        kern_conv3 = [4,4]
+        kern_conv3 = [3,3]
         self.hidden3 = Conv2d(n_out2, n_out3, kern_conv3)
         kaiming_uniform_(self.hidden3.weight, nonlinearity='relu')
         self.act3 = ReLU()
         # second pooling layer
-        kern_pool3 = [3,3]
+        kern_pool3 = [2,2]
         self.pool3 = MaxPool2d(kern_pool3, stride=kern_pool3)
+        size_after_3 = (CNN.contract_size(size_after_2[0],kern_conv3[0],kern_pool3[0]), CNN.contract_size(size_after_2[1],kern_conv3[1],kern_pool3[1]))
         
         # fully connected layer
-        # compute how big network should be befor elinear layer. floor assumes pool crops, not pads
-        # size_at_3 = n_out2 * CNN.contract_size(n_f, [kern_conv2[0], kern_conv1[0]], [kern_pool2[0], kern_pool1[0]], 2) * CNN.contract_size(n_t, [kern_conv2[1], kern_conv1[1]], [kern_pool2[1], kern_pool1[1]], 2)
-        # size_at_4 = 32*7*11 # TODO: fix CNN_contract_size to get this for inhomogenous layers
-        size_at_4 = 32*16*4 # TODO: fix CNN_contract_size to get this for inhomogenous layers
+        size_at_4 = n_out3*size_after_3[0]*size_after_3[1] # TODO: fix CNN_contract_size to get this for inhomogenous layers
         n_out4 = 100
         self.hidden4 = Linear(size_at_4, n_out4)
         kaiming_uniform_(self.hidden4.weight, nonlinearity='relu')
@@ -129,17 +129,22 @@ class CNN(Module):
         # output layer
         self.hidden5 = Linear(n_out4, n_classes)
         xavier_uniform_(self.hidden4.weight)
-        self.act5 = Softmax(dim=1) # TODO: what's the shape here? why dim 1?
+        self.act5 = Softmax(dim=1) # TODO: what's the shape here? why dim 1? because batches are first dim?
 
+    # @staticmethod
+    # def contract_size(x,kern_conv,kern_pool,n_lay):
+    #     # recursive helper to find length of one dimension of network after several layers
+    #     # load kernel sizes into lsit backwards (end is layer 1)
+    #     # TODO: fix this
+    #     if n_lay <= 0:
+    #         return x
+    #     else:
+    #         return math.floor((CNN.contract_size(x,kern_conv[0:-1],kern_pool[0:-1],n_lay-1) - kern_conv[-1]+1)/kern_pool[-1])
+    
     @staticmethod
-    def contract_size(x,kern_conv,kern_pool,n_lay):
-        # recursive helper to find length of one dimension of network after several layers
-        # load kernel sizes into lsit backwards (end is layer 1)
-        # TODO: fix this
-        if n_lay <= 0:
-            return x
-        else:
-            return math.floor((CNN.contract_size(x,kern_conv[0:-1],kern_pool[0:-1],n_lay-1) - kern_conv[-1]+1)/kern_pool[-1])
+    def contract_size(x,kern_conv,kern_pool):
+        # size after one layer
+        return math.floor((x-kern_conv+1)/kern_pool)
     
     # forward propagate input
     def forward(self, X):
@@ -214,8 +219,9 @@ csv_path = "data/UrbanSound8K.csv"
 # need already processed data (process_data.py) with correct wind and step
 windexp = 11
 stepexp = 9
+downsamp = 2
 windfun = "hamming" # solely for data loading and saving
-param_suffix = "wind" + str(windexp) + "_step" + str(stepexp) + ("_"+windfun if windfun is not None else "")
+param_suffix = "wind" + str(windexp) + "_step" + str(stepexp) + ("_"+windfun if windfun is not None else "") + ("_down"+str(downsamp) if downsamp is not 1 else "")
 # data_dir = "processed_" + param_suffix # 8 10 TODO: move to other drive
 data_dir = "/media/tim/Data/urbansound_data/processed_" + param_suffix # 9 11
 # data_dir = "../input/urbansound8k-processed/processed_wind" + param_suffix
@@ -231,15 +237,15 @@ try_cuda = 0 # will still check if available first
 use_cuda = torch.cuda.is_available() & try_cuda
 device = torch.device("cuda" if use_cuda else "cpu")
 
-train_set = UrbanSoundDataset(csv_path,data_dir, {x for x in range(9)}, wind, step, load_phase)
-# train_set = UrbanSoundDataset(csv_path,data_dir, {1}, wind, step, load_phase)
-test_set = UrbanSoundDataset(csv_path,data_dir, {10}, wind, step, load_phase)
+train_set = UrbanSoundDataset(csv_path,data_dir, {x for x in range(9)}, wind, step, downsamp, load_phase)
+# train_set = UrbanSoundDataset(csv_path,data_dir, {1}, wind, step, downsamp, load_phase)
+test_set = UrbanSoundDataset(csv_path,data_dir, {10}, wind, step, downsamp, load_phase)
 
 train_dl = DataLoader(train_set,batch_size=64,shuffle=True)
 test_dl = DataLoader(test_set,batch_size=64,shuffle=False)
 
 # define the network
-model_psd = CNN(load_phase+1, train_set.max_timebins, wind/2+1, train_set.n_classes).float().to(device) # 1 input channel for PSD only
+model_psd = CNN(load_phase+1, train_set.max_timebins, round(wind/(2*downsamp)+(1 if downsamp==1 else 0)), train_set.n_classes).float().to(device) # 1 input channel for PSD only
 # model_psd = model_psd.float()
 
 # train the model
