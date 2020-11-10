@@ -89,7 +89,7 @@ class CNN(Module):
         # input to first hidden layer
         n_out1 = 32
         kern_conv1 = [50,5]
-        self.hidden1 = Conv2d(n_channels, n_out1, kern_conv1)
+        self.hidden1 = Conv2d(n_channels, n_out1, kern_conv1, stride_conv1)
         kaiming_uniform_(self.hidden1.weight, nonlinearity='relu')
         self.act1 = ReLU()
         # first pooling layer
@@ -119,7 +119,8 @@ class CNN(Module):
         # fully connected layer
         # compute how big network should be befor elinear layer. floor assumes pool crops, not pads
         # size_at_3 = n_out2 * CNN.contract_size(n_f, [kern_conv2[0], kern_conv1[0]], [kern_pool2[0], kern_pool1[0]], 2) * CNN.contract_size(n_t, [kern_conv2[1], kern_conv1[1]], [kern_pool2[1], kern_pool1[1]], 2)
-        size_at_4 = 32*7*11 # TODO: fix CNN_contract_size to get this for inhomogenous layers
+        # size_at_4 = 32*7*11 # TODO: fix CNN_contract_size to get this for inhomogenous layers
+        size_at_4 = 32*16*4 # TODO: fix CNN_contract_size to get this for inhomogenous layers
         n_out4 = 100
         self.hidden4 = Linear(size_at_4, n_out4)
         kaiming_uniform_(self.hidden4.weight, nonlinearity='relu')
@@ -211,15 +212,17 @@ def evaluate_model(test_dl, model, device):
 csv_path = "data/UrbanSound8K.csv"
 # csv_path = "../input/urbansound8k-meta/UrbanSound8K.csv"
 # need already processed data (process_data.py) with correct wind and step
-windexp = 10
-stepexp = 8
-param_suffix = "wind" + str(windexp) + "_step" + str(stepexp)
-data_dir = "processed_" + param_suffix
+windexp = 11
+stepexp = 9
+windfun = "hamming" # solely for data loading and saving
+param_suffix = "wind" + str(windexp) + "_step" + str(stepexp) + ("_"+windfun if windfun is not None else "")
+# data_dir = "processed_" + param_suffix # 8 10 TODO: move to other drive
+data_dir = "/media/tim/Data/urbansound_data/processed_" + param_suffix # 9 11
 # data_dir = "../input/urbansound8k-processed/processed_wind" + param_suffix
 
 wind = 2**windexp
 step = 2**stepexp
-n_epochs = 1
+n_epochs = 5
 
 load_phase = 1
 
@@ -228,8 +231,8 @@ try_cuda = 0 # will still check if available first
 use_cuda = torch.cuda.is_available() & try_cuda
 device = torch.device("cuda" if use_cuda else "cpu")
 
-# train_set = UrbanSoundDataset(csv_path,data_dir, {x for x in range(9)}, wind, step, load_phase)
-train_set = UrbanSoundDataset(csv_path,data_dir, {1}, wind, step, load_phase)
+train_set = UrbanSoundDataset(csv_path,data_dir, {x for x in range(9)}, wind, step, load_phase)
+# train_set = UrbanSoundDataset(csv_path,data_dir, {1}, wind, step, load_phase)
 test_set = UrbanSoundDataset(csv_path,data_dir, {10}, wind, step, load_phase)
 
 train_dl = DataLoader(train_set,batch_size=64,shuffle=True)
@@ -244,6 +247,7 @@ train_start = time.time()
 train_model(train_dl, model_psd, device, n_epochs)
 print("Training time: " + str(time.time()-train_start) + " seconds")
 torch.save(model_psd, "models/model_" + param_suffix)
+# torch.save(model_psd, "./model_" + param_suffix + "_psdPhase")
 
 # evaluate the model
 test_start = time.time()
@@ -251,4 +255,5 @@ predictions, actuals = evaluate_model(test_dl, model_psd, device)
 acc = accuracy_score(actuals, predictions)
 print("Evaluation time: " + str(time.time()-test_start) + " seconds")
 print('Accuracy: %.3f' % acc)
-confusion = confusion_matrix(actuals, predictions, labels=train_set.class_names)
+confusion = confusion_matrix(actuals, predictions)
+print(confusion)
