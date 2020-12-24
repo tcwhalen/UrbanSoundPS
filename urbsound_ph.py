@@ -131,16 +131,6 @@ class CNN(Module):
         xavier_uniform_(self.hidden4.weight)
         self.act5 = Softmax(dim=1) # TODO: what's the shape here? why dim 1? because batches are first dim?
 
-    # @staticmethod
-    # def contract_size(x,kern_conv,kern_pool,n_lay):
-    #     # recursive helper to find length of one dimension of network after several layers
-    #     # load kernel sizes into lsit backwards (end is layer 1)
-    #     # TODO: fix this
-    #     if n_lay <= 0:
-    #         return x
-    #     else:
-    #         return math.floor((CNN.contract_size(x,kern_conv[0:-1],kern_pool[0:-1],n_lay-1) - kern_conv[-1]+1)/kern_pool[-1])
-    
     @staticmethod
     def contract_size(x,kern_conv,kern_pool):
         # size after one layer
@@ -216,6 +206,7 @@ def evaluate_model(test_dl, model, device):
 ## main code
 csv_path = "data/UrbanSound8K.csv"
 # csv_path = "../input/urbansound8k-meta/UrbanSound8K.csv"
+
 # need already processed data (process_data.py) with correct wind and step
 windexp = 11
 stepexp = 9

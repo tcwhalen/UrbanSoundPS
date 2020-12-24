@@ -4,3 +4,5 @@
 command_sheet
 /processed*
 *.csv
+/.vscode
+/models

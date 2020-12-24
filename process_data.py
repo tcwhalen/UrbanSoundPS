@@ -1,4 +1,4 @@
-# # Creates and re-saves processed (z-scored PSDs and phase diffss) UrbanSound8K files for quicker loading
+## Creates and re-saves processed (z-scored PSDs and phase diffss) UrbanSound8K files for quicker loading
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ from phaseshift import phasediff
 from math import pi
 
 # parameters to choose (exp refers to log2 of param)
-# maybe make this into function
+# TODO: make these function parameters
 windexp = 11 # any larger will fail on <90 msec files
 stepexp = 9
 windfun = "hamming"
