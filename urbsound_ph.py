@@ -3,6 +3,7 @@ import pandas as pd
 import torch
 import math
 import seaborn as sns
+import time
 
 from sklearn.metrics import accuracy_score, confusion_matrix
 from torchvision.transforms import Compose, ToTensor, Normalize
@@ -11,7 +12,6 @@ from torch.optim import SGD
 from torch.nn.init import kaiming_uniform_, xavier_uniform_
 from torch.utils.data import Dataset, DataLoader
 pi = math.pi
-import time
 
 ## Defining dataset
 class UrbanSoundDataset(Dataset):
@@ -213,7 +213,6 @@ stepexp = 9
 downsamp = 2
 windfun = "hamming" # solely for data loading and saving
 param_suffix = "wind" + str(windexp) + "_step" + str(stepexp) + ("_"+windfun if windfun is not None else "") + ("_down"+str(downsamp) if downsamp is not 1 else "")
-# data_dir = "processed_" + param_suffix # 8 10 TODO: move to other drive
 data_dir = "/media/tim/Data/urbansound_data/processed_" + param_suffix # 9 11
 # data_dir = "../input/urbansound8k-processed/processed_wind" + param_suffix
 
@@ -228,8 +227,8 @@ try_cuda = 0 # will still check if available first
 use_cuda = torch.cuda.is_available() & try_cuda
 device = torch.device("cuda" if use_cuda else "cpu")
 
+# TODO: cross-validation using other folds as test
 train_set = UrbanSoundDataset(csv_path,data_dir, {x for x in range(9)}, wind, step, downsamp, load_phase)
-# train_set = UrbanSoundDataset(csv_path,data_dir, {1}, wind, step, downsamp, load_phase)
 test_set = UrbanSoundDataset(csv_path,data_dir, {10}, wind, step, downsamp, load_phase)
 
 train_dl = DataLoader(train_set,batch_size=64,shuffle=True)
@@ -237,7 +236,6 @@ test_dl = DataLoader(test_set,batch_size=64,shuffle=False)
 
 # define the network
 model_psd = CNN(load_phase+1, train_set.max_timebins, round(wind/(2*downsamp)+(1 if downsamp==1 else 0)), train_set.n_classes).float().to(device) # 1 input channel for PSD only
-# model_psd = model_psd.float()
 
 # train the model
 train_start = time.time()
